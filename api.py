@@ -14,6 +14,11 @@ from urllib.parse import urlparse, parse_qs
 DB_PATH = Path(__file__).parent / "data" / "scanner.db"
 PORT = 8765
 
+# Load auth secret from secrets file
+SECRET_FILE = Path.home() / ".openclaw" / "secrets" / "dvm-api-auth"
+_RAW_AUTH = SECRET_FILE.read_text().strip() if SECRET_FILE.exists() else ""
+_AUTH_VALUE = _RAW_AUTH.split(":")[-1] if _RAW_AUTH else ""
+
 TASK_NAMES = {
     5000: "extract-text",
     5001: "summarize-text",
@@ -126,6 +131,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode())
 
     def do_GET(self):
+        # Shared secret auth
+        if _AUTH_VALUE and self.headers.get("Authorization") != _AUTH_VALUE:
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "unauthorized"}).encode())
+            return
+
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         since = int(qs.get("since", ["24"])[0])
