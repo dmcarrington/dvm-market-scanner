@@ -30,6 +30,10 @@
       border-radius: 12px;
       font-weight: 600;
     }
+    .updated {
+      font-size: 0.7rem;
+      color: #8b949e;
+    }
     .controls {
       display: flex;
       gap: 0.5rem;
@@ -47,15 +51,8 @@
       cursor: pointer;
       font-size: 0.85rem;
     }
-    .controls button.active {
-      background: #30363d;
-      border-color: #8b949e;
-    }
-    .controls .refresh {
-      background: #238636;
-      border-color: #238636;
-      margin-left: auto;
-    }
+    .controls button.active { background: #30363d; border-color: #8b949e; }
+    .controls .refresh { background: #238636; border-color: #238636; margin-left: auto; }
     .stats-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -68,17 +65,8 @@
       border-radius: 8px;
       padding: 1.2rem;
     }
-    .stat-card .label {
-      font-size: 0.75rem;
-      color: #8b949e;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 0.5rem;
-    }
-    .stat-card .value {
-      font-size: 2rem;
-      font-weight: 700;
-    }
+    .stat-card .label { font-size: 0.75rem; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+    .stat-card .value { font-size: 2rem; font-weight: 700; }
     .stat-card .sub { font-size: 0.8rem; color: #8b949e; margin-top: 0.3rem; }
     .charts {
       display: grid;
@@ -86,21 +74,10 @@
       gap: 1rem;
       padding: 0 2rem 1.5rem;
     }
-    .chart-card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      padding: 1.2rem;
-    }
+    .chart-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.2rem; }
     .chart-card h3 { font-size: 0.9rem; margin-bottom: 1rem; color: #8b949e; }
     .chart-wrap { position: relative; height: 250px; }
-    .table-card {
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 8px;
-      padding: 1.2rem;
-      margin: 0 2rem 1.5rem;
-    }
+    .table-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.2rem; margin: 0 2rem 1.5rem; }
     .table-card h3 { font-size: 0.9rem; margin-bottom: 1rem; color: #8b949e; }
     table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
     th { text-align: left; color: #8b949e; font-size: 0.7rem; text-transform: uppercase; padding: 0.5rem 0; border-bottom: 1px solid #30363d; }
@@ -111,24 +88,16 @@
     .bar-fill { height: 100%; background: #238636; border-radius: 3px; }
     .error { color: #f85149; padding: 2rem; text-align: center; }
     .loading { color: #8b949e; padding: 2rem; text-align: center; }
-    .kind-tag {
-      display: inline-block;
-      font-size: 0.7rem;
-      padding: 0.15rem 0.5rem;
-      border-radius: 4px;
-      margin: 0.1rem;
-      font-weight: 600;
-    }
-    .kind-text { background: #1f4f6f; color: #79c0ff; }
-    .kind-image { background: #5c3a1e; color: #d29922; }
-    .kind-other { background: #2d2140; color: #bc8cff; }
   </style>
 </head>
 <body>
 
 <header>
   <h1>DVM Market Scanner</h1>
-  <span class="badge" id="period-badge">—</span>
+  <div style="display:flex;align-items:center;gap:0.75rem;">
+    <span class="updated" id="updated-at"></span>
+    <span class="badge" id="period-badge">—</span>
+  </div>
 </header>
 
 <div class="controls">
@@ -163,9 +132,7 @@
 </div>
 
 <script>
-const API = 'https://lissomely-ethological-willa.ngrok-free.dev';
-let timelineChart, kindChart;
-let currentRange = 24;
+const API = 'https://gist.githubusercontent.com/dmcarrington/3e41c1bcb297c52335ee4fe7c6ec363e/raw';
 
 const KIND_COLORS = {
   'extract-text':     '#79c0ff',
@@ -176,20 +143,16 @@ const KIND_COLORS = {
   'convert-video':    '#ff7b72',
   'generate-video':   '#db6d28',
   'text-to-speech':  '#39d353',
-  'generate-music':   '#85e89d',
+  'generate-music':  '#85e89d',
   'content-discovery':'#e3b341',
 };
 
-function kindColor(name) {
-  return KIND_COLORS[name] || '#8b949e';
-}
+function kindColor(name) { return KIND_COLORS[name] || '#8b949e'; }
+function npub(pubkey) { return pubkey ? pubkey.substring(0, 12) + '...' : '—'; }
 
-function npub(pubkey) {
-  try {
-    // Truncate to npub1... format
-    return pubkey ? pubkey.substring(0, 12) + '...' : '—';
-  } catch { return pubkey || '—'; }
-}
+let timelineChart, kindChart;
+let currentRange = 24;
+let cachedData = null;
 
 function setRange(hours) {
   currentRange = hours;
@@ -198,36 +161,41 @@ function setRange(hours) {
   loadAll();
 }
 
-async function fetchJSON(url) {
-  const r = await fetch(url);
+async function fetchData() {
+  // Gist URL returns JSON directly; cache for duration of session
+  if (cachedData) return cachedData;
+  const r = await fetch(API + '?t=' + Date.now());
   if (!r.ok) throw new Error(r.status);
-  return r.json();
+  cachedData = await r.json();
+  return cachedData;
 }
 
 async function loadStats() {
   const grid = document.getElementById('stats-grid');
   try {
-    const data = await fetchJSON(API + '/stats?since=' + currentRange);
-    document.getElementById('period-badge').textContent = data.period_hours + 'h window';
-    const completionRate = data.job_events > 0
-      ? Math.round((data.result_events / data.job_events) * 100) + '%'
+    const data = await fetchData();
+    const s = data.stats || {};
+    document.getElementById('period-badge').textContent = (s.period_hours || 0) + 'h window';
+    document.getElementById('updated-at').textContent = data.synced_at ? 'Updated ' + data.synced_at.substring(11, 16) + ' UTC' : '';
+    const completionRate = s.job_events > 0
+      ? Math.round((s.result_events / s.job_events) * 100) + '%'
       : '—';
-    grid.innerHTML = `
-      <div class="stat-card"><div class="label">Total Events</div><div class="value">${data.total_events.toLocaleString()}</div></div>
-      <div class="stat-card"><div class="label">Job Requests</div><div class="value">${data.job_events.toLocaleString()}</div></div>
-      <div class="stat-card"><div class="label">Results Returned</div><div class="value">${data.result_events.toLocaleString()}</div><div class="sub">${completionRate} completion rate</div></div>
-      <div class="stat-card"><div class="label">Active DVMs</div><div class="value">${data.unique_dvms.toLocaleString()}</div></div>
-    `;
+    grid.innerHTML = ''
+      + '<div class="stat-card"><div class="label">Total Events</div><div class="value">' + s.total_events.toLocaleString() + '</div></div>'
+      + '<div class="stat-card"><div class="label">Job Requests</div><div class="value">' + s.job_events.toLocaleString() + '</div></div>'
+      + '<div class="stat-card"><div class="label">Results Returned</div><div class="value">' + s.result_events.toLocaleString() + '</div><div class="sub">' + completionRate + ' completion rate</div></div>'
+      + '<div class="stat-card"><div class="label">Active DVMs</div><div class="value">' + s.unique_dvms.toLocaleString() + '</div></div>';
   } catch(e) {
-    grid.innerHTML = `<div class="error">Failed to load stats: ${e.message}. Is the API running?</div>`;
+    grid.innerHTML = '<div class="error">Failed to load: ' + e.message + '</div>';
   }
 }
 
 async function loadTimeline() {
   try {
-    const data = await fetchJSON(API + '/timeline?since=' + currentRange);
-    const labels = data.map(d => d.ts.substring(5, 16)); // MM-DD HH:mm
-    const totals = data.map(d => d.total || 0);
+    const data = await fetchData();
+    const tl = data.timeline || [];
+    const labels = tl.map(d => d.ts.substring(5, 16));
+    const totals = tl.map(d => d.total || 0);
 
     if (timelineChart) timelineChart.destroy();
     const ctx = document.getElementById('timeline-chart').getContext('2d');
@@ -260,8 +228,8 @@ async function loadTimeline() {
 
 async function loadKindChart() {
   try {
-    const data = await fetchJSON(API + '/stats?since=' + currentRange);
-    const byKind = data.by_kind || {};
+    const data = await fetchData();
+    const byKind = data.stats.by_kind || {};
     const sorted = Object.entries(byKind).sort((a, b) => b[1] - a[1]).slice(0, 10);
     const labels = sorted.map(([k]) => k);
     const values = sorted.map(([, v]) => v);
@@ -289,32 +257,33 @@ async function loadKindChart() {
 async function loadTopDVMs() {
   const tbody = document.querySelector('#dvm-table tbody');
   try {
-    const data = await fetchJSON(API + '/dvms?since=' + currentRange);
-    if (!data.length) {
+    const data = await fetchData();
+    const dvms = data.dvms || [];
+    if (!dvms.length) {
       tbody.innerHTML = '<tr><td colspan="5" style="color:#8b949e;text-align:center">No data yet</td></tr>';
       return;
     }
-    const total = data.reduce((s, d) => s + d.events, 0);
-    tbody.innerHTML = data.map(d => {
+    const total = dvms.reduce((s, d) => s + d.events, 0);
+    tbody.innerHTML = dvms.map(d => {
       const share = total > 0 ? Math.round((d.events / total) * 100) + '%' : '—';
-      return `<tr>
-        <td class="mono">${npub(d.pubkey)}</td>
-        <td>${d.jobs || 0}</td>
-        <td>${d.results || 0}</td>
-        <td><strong>${d.events}</strong></td>
-        <td><div class="bar"><div class="bar-fill" style="width:${share}"></div></div>${share}</td>
-      </tr>`;
+      return '<tr>'
+        + '<td class="mono">' + npub(d.pubkey) + '</td>'
+        + '<td>' + (d.jobs || 0) + '</td>'
+        + '<td>' + (d.results || 0) + '</td>'
+        + '<td><strong>' + d.events + '</strong></td>'
+        + '<td><div class="bar"><div class="bar-fill" style="width:' + share + '"></div></div>' + share + '</td>'
+        + '</tr>';
     }).join('');
   } catch(e) {
-    tbody.innerHTML = `<tr><td colspan="5" class="error">${e.message}</td></tr>`;
+    tbody.innerHTML = '<tr><td colspan="5" class="error">' + e.message + '</td></tr>';
   }
 }
 
 async function loadAll() {
+  cachedData = null; // Force refresh on manual refresh
   await Promise.all([loadStats(), loadTimeline(), loadKindChart(), loadTopDVMs()]);
 }
 
-// Auto-refresh every 60s
 loadAll();
 setInterval(loadAll, 60000);
 </script>
