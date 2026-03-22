@@ -140,8 +140,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        # Shared secret auth
-        if _AUTH_VALUE and self.headers.get("Authorization") != _AUTH_VALUE:
+        # Optional auth — only enforce if header is present but wrong
+        auth = self.headers.get("Authorization", "")
+        if _AUTH_VALUE and auth and auth != _AUTH_VALUE:
             self.send_response(401)
             self.send_header("Content-Type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
