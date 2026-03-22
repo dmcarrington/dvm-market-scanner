@@ -88,6 +88,14 @@
     .bar-fill { height: 100%; background: #238636; border-radius: 3px; }
     .error { color: #f85149; padding: 2rem; text-align: center; }
     .loading { color: #8b949e; padding: 2rem; text-align: center; }
+    .poll-section { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.2rem; margin: 0 2rem 1.5rem; }
+    .poll-section h3 { font-size: 0.9rem; margin-bottom: 1rem; color: #8b949e; }
+    .poll-cats { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+    .cat-pill { font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 12px; font-weight: 600; }
+    .poll-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .poll-item { font-size: 0.82rem; padding: 0.5rem 0.75rem; background: #21262d; border-radius: 6px; border-left: 3px solid #58a6ff; }
+    .poll-item .cat { font-size: 0.65rem; color: #8b949e; margin-bottom: 0.2rem; text-transform: uppercase; }
+    .poll-item .q { color: #e6edf3; }
   </style>
 </head>
 <body>
@@ -129,6 +137,12 @@
     <thead><tr><th>Pubkey</th><th>Jobs</th><th>Results</th><th>Total</th><th>Share</th></tr></thead>
     <tbody><tr><td colspan="5" class="loading">Loading...</td></tr></tbody>
   </table>
+</div>
+
+<div class="poll-section" id="poll-section">
+  <h3>Recent Poll Questions (Kind 6969 — NIP-96B)</h3>
+  <div class="poll-cats" id="poll-cats"></div>
+  <div class="poll-list" id="poll-list"></div>
 </div>
 
 <script>
@@ -279,9 +293,56 @@ async function loadTopDVMs() {
   }
 }
 
+const CAT_COLORS = {
+  'Geopolitics':    '#d2a8ff',
+  'Crypto/Bitcoin': '#ffa657',
+  'AI/Tech':        '#79c0ff',
+  'Markets':        '#56d364',
+  'Sports':         '#f0883e',
+  'Entertainment':  '#bc8cff',
+  'Other':          '#8b949e',
+};
+
+async function loadPolls() {
+  const catsDiv = document.getElementById('poll-cats');
+  const listDiv = document.getElementById('poll-list');
+  try {
+    const data = await fetchData();
+    const q = data.questions || {};
+    const cats = q.poll_categories || {};
+    const polls = q.recent_polls || [];
+
+    // Category pills
+    const total = Object.values(cats).reduce((s, v) => s + v, 0) || 1;
+    catsDiv.innerHTML = Object.entries(cats).map(([cat, count]) => {
+      const pct = Math.round((count / total) * 100);
+      const color = CAT_COLORS[cat] || '#8b949e';
+      return '<span class="cat-pill" style="background:' + color + '22;color:' + color + ';border:1px solid ' + color + '44">' + cat + ' ' + count + '</span>';
+    }).join('');
+
+    // Recent polls
+    if (!polls.length) {
+      listDiv.innerHTML = '<div style="color:#8b949e;font-size:0.85rem">No poll questions yet</div>';
+      return;
+    }
+    listDiv.innerHTML = polls.map(poll => {
+      // Categorize this poll
+      const myCats = (Object.entries(cats).sort((a, b) => b[1] - a[1]) || [['Other', 1]]).slice(0, 1);
+      const catLabel = myCats[0][0];
+      const color = CAT_COLORS[catLabel] || '#8b949e';
+      return '<div class="poll-item" style="border-left-color:' + color + '">'
+        + '<div class="cat" style="color:' + color + '">' + catLabel + '</div>'
+        + '<div class="q">' + poll.replace(/</g, '&lt;') + '</div>'
+        + '</div>';
+    }).join('');
+  } catch(e) {
+    listDiv.innerHTML = '<div style="color:#f85149;font-size:0.85rem">Failed to load polls: ' + e.message + '</div>';
+  }
+}
+
 async function loadAll() {
-  cachedData = null; // Force refresh on manual refresh
-  await Promise.all([loadStats(), loadTimeline(), loadKindChart(), loadTopDVMs()]);
+  cachedData = null;
+  await Promise.all([loadStats(), loadTimeline(), loadKindChart(), loadTopDVMs(), loadPolls()]);
 }
 
 loadAll();

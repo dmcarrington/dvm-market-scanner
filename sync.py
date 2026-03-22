@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Sync DVM market stats to a GitHub Gist.
-Creates the Gist on first run, updates it on subsequent runs.
-Dashboard reads from the Gist's raw URL — no tunnel, no CORS.
+Sync DVM market stats + poll analysis to GitHub Gist.
+Reads from scanner.db, builds enriched payload, pushes to Gist.
 """
 
 import json
 import sqlite3
 import subprocess
 import time
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,33 +29,39 @@ TASK_NAMES = {
     5300: "content-discovery",
 }
 
+CATEGORIES = {
+    "Geopolitics":   ["trump","iran","qatar","china","uk","eu ","russia","sanctions","nato","war","opec","brent","oil","hormuz","lng","ras laffan","saudi","opec"],
+    "Crypto/Bitcoin": ["bitcoin","btc","nostr","maxi","mining","foundry","lightning","satoshi","ordinal","taproot"],
+    "AI/Tech":        ["openai","gpt","claude","model","release","update","primal","nip","github","oracle","software","chatgpt"],
+    "Sports":         ["longhorns","march madness","elite","f1","gp","racing","tournament","bracket","nba","nfl","texas","russell"],
+    "Markets":        ["gold","spike","market","barrel","crude","stock","etf","inflation","funds","bitcoin price","oil shock"],
+    "Entertainment":  ["anime","movie","series","poll","fun","demon slayer","episode","nostalgia"],
+}
+
+def categorize(text):
+    t = text.lower()
+    return [c for c, kws in CATEGORIES.items() if any(kw in t for kw in kws)] or ["Other"]
+
+
+# ─── DB queries ────────────────────────────────────────────────────────────────
 
 def get_stats(conn, since_hours=24):
     cutoff = int(time.time()) - (since_hours * 3600)
-    total = conn.execute(
-        "SELECT COUNT(*) FROM events WHERE created_at > ?", (cutoff,)
-    ).fetchone()[0] or 0
-    unique_pubkeys = conn.execute(
-        "SELECT COUNT(DISTINCT pubkey) FROM events WHERE created_at > ?", (cutoff,)
-    ).fetchone()[0] or 0
-    job_count = conn.execute(
-        "SELECT COUNT(*) FROM events WHERE created_at > ? AND kind >= 5000 AND kind < 6000", (cutoff,)
-    ).fetchone()[0] or 0
-    result_count = conn.execute(
-        "SELECT COUNT(*) FROM events WHERE created_at > ? AND kind >= 6000 AND kind < 7000", (cutoff,)
-    ).fetchone()[0] or 0
+    total = conn.execute("SELECT COUNT(*) FROM events WHERE created_at > ?", (cutoff,)).fetchone()[0] or 0
+    unique = conn.execute("SELECT COUNT(DISTINCT pubkey) FROM events WHERE created_at > ?", (cutoff,)).fetchone()[0] or 0
+    jobs = conn.execute("SELECT COUNT(*) FROM events WHERE created_at > ? AND kind >= 5000 AND kind < 6000", (cutoff,)).fetchone()[0] or 0
+    results = conn.execute("SELECT COUNT(*) FROM events WHERE created_at > ? AND kind >= 6000 AND kind < 7000", (cutoff,)).fetchone()[0] or 0
     by_kind = {}
     for kind, cnt in conn.execute(
         "SELECT kind, COUNT(*) AS c FROM events WHERE created_at > ? GROUP BY kind ORDER BY c DESC", (cutoff,)
     ).fetchall():
-        kname = TASK_NAMES.get(kind, f"kind-{kind}")
-        by_kind[kname] = cnt
+        by_kind[TASK_NAMES.get(kind, f"kind-{kind}")] = cnt
     return {
         "period_hours": since_hours,
         "total_events": total,
-        "job_events": job_count,
-        "result_events": result_count,
-        "unique_dvms": unique_pubkeys,
+        "job_events": jobs,
+        "result_events": results,
+        "unique_dvms": unique,
         "by_kind": by_kind,
     }
 
@@ -83,8 +89,7 @@ def get_timeline(conn, since_hours=24, bucket_minutes=60):
 def get_top_dvms(conn, since_hours=24, limit=20):
     cutoff = int(time.time()) - (since_hours * 3600)
     rows = conn.execute(
-        f"""SELECT pubkey,
-               COUNT(*) AS total_events,
+        f"""SELECT pubkey, COUNT(*) AS total_events,
                SUM(CASE WHEN kind >= 5000 AND kind < 6000 THEN 1 ELSE 0 END) AS jobs,
                SUM(CASE WHEN kind >= 6000 AND kind < 7000 THEN 1 ELSE 0 END) AS results
             FROM events WHERE created_at > ?
@@ -94,26 +99,52 @@ def get_top_dvms(conn, since_hours=24, limit=20):
     return [{"pubkey": r[0], "events": r[1], "jobs": r[2], "results": r[3]} for r in rows]
 
 
-def create_gist(content, filename):
+def get_question_report(conn):
+    """Extract question/poll content from events and categorize them."""
+    rows = conn.execute(
+        "SELECT kind, content FROM events WHERE LENGTH(content) > 10"
+    ).fetchall()
+
+    poll_rows = [r[1] for r in rows if r[0] == 6969]
+    poll_cat = Counter(cat for q in poll_rows for cat in categorize(q))
+
+    return {
+        "total_with_content": len(rows),
+        "poll_questions": len(poll_rows),
+        "poll_categories": dict(poll_cat.most_common()),
+        "recent_polls": [q.strip()[:250] for q in poll_rows[:10]],
+    }
+
+
+# ─── Gist operations ───────────────────────────────────────────────────────────
+
+def gh_gist_create(content, filename):
     result = subprocess.run(
-        ["gh", "gist", "create", "--public", "-d", "DVM Market Scanner live stats",
-         "-f", filename],
+        ["gh", "gist", "create", "--public", "-d", "DVM Market Scanner live stats", "-f", filename],
         input=content, capture_output=True, text=True
     )
     if result.returncode != 0:
         raise Exception(f"gist create failed: {result.stderr}")
-    url = result.stdout.strip()
-    return url.rsplit("/", 1)[-1]
+    return result.stdout.strip().rsplit("/", 1)[-1]
 
 
-def update_gist(gist_id, content, filename):
+def gh_gist_edit(gist_id, content, filename):
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=filename, delete=False) as f:
+        f.write(content)
+        f.flush()
+        tmp = f.name
     result = subprocess.run(
-        ["gh", "gist", "edit", gist_id, "-f", filename],
-        input=content, capture_output=True, text=True
+        ["gh", "gist", "edit", gist_id, tmp],
+        capture_output=True, text=True
     )
+    import os
+    os.unlink(tmp)
     if result.returncode != 0:
         raise Exception(f"gist edit failed: {result.stderr}")
 
+
+# ─── Main sync ─────────────────────────────────────────────────────────────────
 
 def sync():
     if not DB_PATH.exists():
@@ -125,6 +156,7 @@ def sync():
         "stats": get_stats(conn),
         "timeline": get_timeline(conn),
         "dvms": get_top_dvms(conn),
+        "questions": get_question_report(conn),
         "synced_at": datetime.now(timezone.utc).isoformat(),
     }
     conn.close()
@@ -134,17 +166,17 @@ def sync():
 
     if gist_id:
         print(f"Updating Gist {gist_id}...")
-        update_gist(gist_id, content, GIST_FILENAME)
+        gh_gist_edit(gist_id, content, GIST_FILENAME)
     else:
         print("Creating new Gist...")
-        gist_id = create_gist(content, GIST_FILENAME)
+        gist_id = gh_gist_create(content, GIST_FILENAME)
         GIST_ID_FILE.write_text(gist_id)
         print(f"Gist created: https://gist.github.com/{gist_id}")
 
     print(f"Synced at {payload['synced_at']}")
-    print(f"DVMs: {payload['stats']['unique_dvms']} | "
-          f"Events: {payload['stats']['total_events']} | "
-          f"Jobs: {payload['stats']['job_events']}")
+    print(f"Stats: {payload['stats']['total_events']} events | "
+          f"{payload['stats']['job_events']} jobs | "
+          f"{payload['questions']['poll_questions']} polls")
 
 
 if __name__ == "__main__":
