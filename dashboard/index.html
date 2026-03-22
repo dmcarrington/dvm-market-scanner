@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DVM Market Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+    }
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    .badge {
+      background: #238636;
+      color: #fff;
+      font-size: 0.7rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 12px;
+      font-weight: 600;
+    }
+    .controls {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 1rem 2rem;
+      border-bottom: 1px solid #30363d;
+      background: #0d1117;
+    }
+    .controls button {
+      background: #21262d;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      padding: 0.4rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .controls button.active {
+      background: #30363d;
+      border-color: #8b949e;
+    }
+    .controls .refresh {
+      background: #238636;
+      border-color: #238636;
+      margin-left: auto;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      padding: 1.5rem 2rem;
+    }
+    .stat-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1.2rem;
+    }
+    .stat-card .label {
+      font-size: 0.75rem;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+    .stat-card .value {
+      font-size: 2rem;
+      font-weight: 700;
+    }
+    .stat-card .sub { font-size: 0.8rem; color: #8b949e; margin-top: 0.3rem; }
+    .charts {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 1rem;
+      padding: 0 2rem 1.5rem;
+    }
+    .chart-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1.2rem;
+    }
+    .chart-card h3 { font-size: 0.9rem; margin-bottom: 1rem; color: #8b949e; }
+    .chart-wrap { position: relative; height: 250px; }
+    .table-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1.2rem;
+      margin: 0 2rem 1.5rem;
+    }
+    .table-card h3 { font-size: 0.9rem; margin-bottom: 1rem; color: #8b949e; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; color: #8b949e; font-size: 0.7rem; text-transform: uppercase; padding: 0.5rem 0; border-bottom: 1px solid #30363d; }
+    td { padding: 0.6rem 0; border-bottom: 1px solid #21262d; }
+    tr:last-child td { border-bottom: none; }
+    .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: 0.8rem; color: #8b949e; }
+    .bar { height: 6px; background: #30363d; border-radius: 3px; overflow: hidden; margin-top: 4px; }
+    .bar-fill { height: 100%; background: #238636; border-radius: 3px; }
+    .error { color: #f85149; padding: 2rem; text-align: center; }
+    .loading { color: #8b949e; padding: 2rem; text-align: center; }
+    .kind-tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      margin: 0.1rem;
+      font-weight: 600;
+    }
+    .kind-text { background: #1f4f6f; color: #79c0ff; }
+    .kind-image { background: #5c3a1e; color: #d29922; }
+    .kind-other { background: #2d2140; color: #bc8cff; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>DVM Market Scanner</h1>
+  <span class="badge" id="period-badge">—</span>
+</header>
+
+<div class="controls">
+  <button onclick="setRange(1)" id="btn-1">1h</button>
+  <button onclick="setRange(24)" id="btn-24" class="active">24h</button>
+  <button onclick="setRange(168)" id="btn-168">7d</button>
+  <button onclick="setRange(720)" id="btn-720">30d</button>
+  <button class="refresh" onclick="loadAll()">↻ Refresh</button>
+</div>
+
+<div class="stats-grid" id="stats-grid">
+  <div class="loading">Loading...</div>
+</div>
+
+<div class="charts">
+  <div class="chart-card">
+    <h3>Events Over Time</h3>
+    <div class="chart-wrap"><canvas id="timeline-chart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <h3>By Task Type</h3>
+    <div class="chart-wrap"><canvas id="kind-chart"></canvas></div>
+  </div>
+</div>
+
+<div class="table-card">
+  <h3>Top DVMs by Activity</h3>
+  <table id="dvm-table">
+    <thead><tr><th>Pubkey</th><th>Jobs</th><th>Results</th><th>Total</th><th>Share</th></tr></thead>
+    <tbody><tr><td colspan="5" class="loading">Loading...</td></tr></tbody>
+  </table>
+</div>
+
+<script>
+const API = '/api' || '';
+let timelineChart, kindChart;
+let currentRange = 24;
+
+const KIND_COLORS = {
+  'extract-text':     '#79c0ff',
+  'summarize-text':   '#56d364',
+  'translate-text':   '#d2a8ff',
+  'generate-text':    '#ffa657',
+  'generate-image':   '#f0883e',
+  'convert-video':    '#ff7b72',
+  'generate-video':   '#db6d28',
+  'text-to-speech':  '#39d353',
+  'generate-music':   '#85e89d',
+  'content-discovery':'#e3b341',
+};
+
+function kindColor(name) {
+  return KIND_COLORS[name] || '#8b949e';
+}
+
+function npub(pubkey) {
+  try {
+    // Truncate to npub1... format
+    return pubkey ? pubkey.substring(0, 12) + '...' : '—';
+  } catch { return pubkey || '—'; }
+}
+
+function setRange(hours) {
+  currentRange = hours;
+  document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + hours).classList.add('active');
+  loadAll();
+}
+
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+async function loadStats() {
+  const grid = document.getElementById('stats-grid');
+  try {
+    const data = await fetchJSON(API + '/stats?since=' + currentRange);
+    document.getElementById('period-badge').textContent = data.period_hours + 'h window';
+    const completionRate = data.job_events > 0
+      ? Math.round((data.result_events / data.job_events) * 100) + '%'
+      : '—';
+    grid.innerHTML = `
+      <div class="stat-card"><div class="label">Total Events</div><div class="value">${data.total_events.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="label">Job Requests</div><div class="value">${data.job_events.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="label">Results Returned</div><div class="value">${data.result_events.toLocaleString()}</div><div class="sub">${completionRate} completion rate</div></div>
+      <div class="stat-card"><div class="label">Active DVMs</div><div class="value">${data.unique_dvms.toLocaleString()}</div></div>
+    `;
+  } catch(e) {
+    grid.innerHTML = `<div class="error">Failed to load stats: ${e.message}. Is the API running?</div>`;
+  }
+}
+
+async function loadTimeline() {
+  try {
+    const data = await fetchJSON(API + '/timeline?since=' + currentRange);
+    const labels = data.map(d => d.ts.substring(5, 16)); // MM-DD HH:mm
+    const totals = data.map(d => d.total || 0);
+
+    if (timelineChart) timelineChart.destroy();
+    const ctx = document.getElementById('timeline-chart').getContext('2d');
+    timelineChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Total Events',
+          data: totals,
+          borderColor: '#58a6ff',
+          backgroundColor: 'rgba(88,166,255,0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: totals.length > 50 ? 0 : 3,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: '#21262d' }, ticks: { color: '#8b949e', maxTicksLimit: 12 } },
+          y: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' }, beginAtZero: true }
+        }
+      }
+    });
+  } catch(e) { console.error(e); }
+}
+
+async function loadKindChart() {
+  try {
+    const data = await fetchJSON(API + '/stats?since=' + currentRange);
+    const byKind = data.by_kind || {};
+    const sorted = Object.entries(byKind).sort((a, b) => b[1] - a[1]).slice(0, 10);
+    const labels = sorted.map(([k]) => k);
+    const values = sorted.map(([, v]) => v);
+    const colors = labels.map(l => kindColor(l));
+
+    if (kindChart) kindChart.destroy();
+    const ctx = document.getElementById('kind-chart').getContext('2d');
+    kindChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { color: '#8b949e', boxWidth: 12, padding: 8, font: { size: 11 } }
+          }
+        }
+      }
+    });
+  } catch(e) { console.error(e); }
+}
+
+async function loadTopDVMs() {
+  const tbody = document.querySelector('#dvm-table tbody');
+  try {
+    const data = await fetchJSON(API + '/dvms?since=' + currentRange);
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:#8b949e;text-align:center">No data yet</td></tr>';
+      return;
+    }
+    const total = data.reduce((s, d) => s + d.events, 0);
+    tbody.innerHTML = data.map(d => {
+      const share = total > 0 ? Math.round((d.events / total) * 100) + '%' : '—';
+      return `<tr>
+        <td class="mono">${npub(d.pubkey)}</td>
+        <td>${d.jobs || 0}</td>
+        <td>${d.results || 0}</td>
+        <td><strong>${d.events}</strong></td>
+        <td><div class="bar"><div class="bar-fill" style="width:${share}"></div></div>${share}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="error">${e.message}</td></tr>`;
+  }
+}
+
+async function loadAll() {
+  await Promise.all([loadStats(), loadTimeline(), loadKindChart(), loadTopDVMs()]);
+}
+
+// Auto-refresh every 60s
+loadAll();
+setInterval(loadAll, 60000);
+</script>
+
+</body>
+</html>
