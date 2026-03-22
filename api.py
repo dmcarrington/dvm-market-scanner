@@ -144,6 +144,7 @@ class Handler(BaseHTTPRequestHandler):
         if _AUTH_VALUE and self.headers.get("Authorization") != _AUTH_VALUE:
             self.send_response(401)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(json.dumps({"error": "unauthorized"}).encode())
             return
@@ -164,11 +165,16 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path in ("/", "/dashboard"):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
+                self.send_header("Access-Control-Allow-Origin", "*")
                 self.end_headers()
                 with open(Path(__file__).parent / "dashboard" / "index.html", "rb") as f:
                     self.wfile.write(f.read())
             else:
-                self.send_json({"error": "not found"}, 404)
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "not found"}).encode())
         finally:
             conn.close()
 
