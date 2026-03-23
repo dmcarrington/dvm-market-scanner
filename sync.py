@@ -66,6 +66,16 @@ def get_stats(conn, since_hours=24):
     }
 
 
+def get_all_stats(conn):
+    """Return stats for all time ranges used by the dashboard buttons."""
+    return {
+        "1":  get_stats(conn, 1),
+        "24": get_stats(conn, 24),
+        "168": get_stats(conn, 168),
+        "720": get_stats(conn, 720),
+    }
+
+
 def get_timeline(conn, since_hours=24, bucket_minutes=60):
     cutoff = int(time.time()) - (since_hours * 3600)
     bucket_sec = bucket_minutes * 60
@@ -152,10 +162,21 @@ def sync():
         return
 
     conn = sqlite3.connect(DB_PATH)
+
+    # Build stats for each dashboard range
+    range_hours = {"1": 1, "24": 24, "168": 168, "720": 720}
+    all_stats = {}
+    all_timelines = {}
+    all_dvms = {}
+    for key, hours in range_hours.items():
+        all_stats[key] = get_stats(conn, hours)
+        all_timelines[key] = get_timeline(conn, hours)
+        all_dvms[key] = get_top_dvms(conn, hours)
+
     payload = {
-        "stats": get_stats(conn),
-        "timeline": get_timeline(conn),
-        "dvms": get_top_dvms(conn),
+        "stats": all_stats,
+        "timelines": all_timelines,
+        "dvms": all_dvms,
         "questions": get_question_report(conn),
         "synced_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -174,8 +195,8 @@ def sync():
         print(f"Gist created: https://gist.github.com/{gist_id}")
 
     print(f"Synced at {payload['synced_at']}")
-    print(f"Stats: {payload['stats']['total_events']} events | "
-          f"{payload['stats']['job_events']} jobs | "
+    s = all_stats["24"]
+    print(f"Stats (24h): {s['total_events']} events | {s['job_events']} jobs | "
           f"{payload['questions']['poll_questions']} polls")
 
 

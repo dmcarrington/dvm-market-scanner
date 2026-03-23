@@ -113,7 +113,7 @@
   <button onclick="setRange(24)" id="btn-24" class="active">24h</button>
   <button onclick="setRange(168)" id="btn-168">7d</button>
   <button onclick="setRange(720)" id="btn-720">30d</button>
-  <button class="refresh" onclick="loadAll()">↻ Refresh</button>
+  <button class="refresh" onclick="loadAll(currentRange)">↻ Refresh</button>
 </div>
 
 <div class="stats-grid" id="stats-grid">
@@ -169,10 +169,10 @@ let currentRange = 24;
 let cachedData = null;
 
 function setRange(hours) {
-  currentRange = hours;
+  currentRange = String(hours);
   document.querySelectorAll('.controls button').forEach(b => b.classList.remove('active'));
   document.getElementById('btn-' + hours).classList.add('active');
-  loadAll();
+  loadAll(currentRange);
 }
 
 async function fetchData() {
@@ -184,11 +184,11 @@ async function fetchData() {
   return cachedData;
 }
 
-async function loadStats() {
+async function loadStats(rangeKey) {
   const grid = document.getElementById('stats-grid');
   try {
     const data = await fetchData();
-    const s = data.stats || {};
+    const s = data.stats[rangeKey] || {};
     document.getElementById('period-badge').textContent = (s.period_hours || 0) + 'h window';
     document.getElementById('updated-at').textContent = data.synced_at ? 'Updated ' + data.synced_at.substring(11, 16) + ' UTC' : '';
     const completionRate = s.job_events > 0
@@ -204,10 +204,10 @@ async function loadStats() {
   }
 }
 
-async function loadTimeline() {
+async function loadTimeline(rangeKey) {
   try {
     const data = await fetchData();
-    const tl = data.timeline || [];
+    const tl = data.timelines[rangeKey] || [];
     const labels = tl.map(d => d.ts.substring(5, 16));
     const totals = tl.map(d => d.total || 0);
 
@@ -240,10 +240,10 @@ async function loadTimeline() {
   } catch(e) { console.error(e); }
 }
 
-async function loadKindChart() {
+async function loadKindChart(rangeKey) {
   try {
     const data = await fetchData();
-    const byKind = data.stats.by_kind || {};
+    const byKind = (data.stats[rangeKey] || {}).by_kind || {};
     const sorted = Object.entries(byKind).sort((a, b) => b[1] - a[1]).slice(0, 10);
     const labels = sorted.map(([k]) => k);
     const values = sorted.map(([, v]) => v);
@@ -268,11 +268,11 @@ async function loadKindChart() {
   } catch(e) { console.error(e); }
 }
 
-async function loadTopDVMs() {
+async function loadTopDVMs(rangeKey) {
   const tbody = document.querySelector('#dvm-table tbody');
   try {
     const data = await fetchData();
-    const dvms = data.dvms || [];
+    const dvms = data.dvms[rangeKey] || [];
     if (!dvms.length) {
       tbody.innerHTML = '<tr><td colspan="5" style="color:#8b949e;text-align:center">No data yet</td></tr>';
       return;
@@ -340,13 +340,21 @@ async function loadPolls() {
   }
 }
 
-async function loadAll() {
-  cachedData = null;
-  await Promise.all([loadStats(), loadTimeline(), loadKindChart(), loadTopDVMs(), loadPolls()]);
+async function loadAll(rangeKey) {
+  rangeKey = rangeKey || currentRange || '24';
+  const data = await fetchData();
+  rangeKey = (data.stats && data.stats[rangeKey]) ? rangeKey : '24';
+  await Promise.all([
+    loadStats(rangeKey),
+    loadTimeline(rangeKey),
+    loadKindChart(rangeKey),
+    loadTopDVMs(rangeKey),
+    loadPolls(),
+  ]);
 }
 
-loadAll();
-setInterval(loadAll, 60000);
+loadAll('24');
+setInterval(() => loadAll('24'), 60000);
 </script>
 
 </body>
